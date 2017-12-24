@@ -4,8 +4,7 @@ import os
 import webapp2
 from google.appengine.ext import db
 import json
-import urllib
-import urllib2
+import hashlib
 import logging
 import datetime
 
@@ -98,6 +97,32 @@ class Post(db.Model):
              'last_modified': self.last_modified.strftime(time_fmt)}
         return d
 
+def creatHashPass(user,password):
+    salt = uuid.uuid4().hex
+    passw = hashlib.sha256(user + password + salt).hexdigest()
+    return passw+','+salt
+
+def checkPass(user,password):
+    passw = creatHashPass(user,password)
+    passw = hashlib.sha256(user + password + salt).hexdigest()
+    return True
+
+class User(db.Model):
+    user = db.StringProperty(required = True)
+    password = db.StringProperty(required = True)
+
+    @classmethod
+    def signup(cls,user,password,email=None):
+        password = creatHashPass(user,password)
+        return User(user=user,password=password,email=email)
+
+    @classmethod
+    def login(cls,username,password):
+        user = cls.db.Key.from_path(username)
+        salt = creatHashPass(user,password).split(',')[1]
+        if user and checkPass(user,user + password + salt):
+            return user
+
 def blog_key(name = 'default'):
     return db.Key.from_path('blogs', name)
 
@@ -117,9 +142,24 @@ class PostPage(BaseHandler):
             self.render_json(post.as_dict())
 
 
-class NewPostPage(BaseHandler):
+class LoginPage(BaseHandler):
     def get(self):
         self.render('login-form.html')
+
+class SignupPage(BaseHandler):
+    def get(self):
+        self.render('signup-form.html')
+    def post(self):
+        username = self.request.get('username')
+        password = self.request.get('password')
+        email = self.request.get('email')
+
+        if username and password:
+            u = User.signup(username,password,email)
+            u.put()
+            self.redirect('/blog')
+        else:
+            self.redirect('/blog/signup')
 
 class NewPostPage(BaseHandler):
 
@@ -139,6 +179,7 @@ app = webapp2.WSGIApplication([('/', MainPage),
                                ('/blog/([0-9]+)(?:.json)?', PostPage),
                                ('/blog/addpost', NewPostPage),
                                ('/blog/flush', MainPage),
-                               ('/blog/login', LoginPage)
+                               ('/blog/login', LoginPage),
+                               ('/blog/signup', SignupPage)
                                ],
                               debug=True)
