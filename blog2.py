@@ -7,6 +7,7 @@ import json
 import hashlib
 import logging
 import datetime
+import uuid
 
 #template jinja config
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
@@ -97,15 +98,21 @@ class Post(db.Model):
              'last_modified': self.last_modified.strftime(time_fmt)}
         return d
 
-def creatHashPass(user,password):
-    salt = uuid.uuid4().hex
-    passw = hashlib.sha256(user + password + salt).hexdigest()
-    return passw+','+salt
+def creatHashPass(user,password,salt=False):
+    if not salt:
+        salt = uuid.uuid4().hex
 
-def checkPass(user,password):
-    passw = creatHashPass(user,password)
     passw = hashlib.sha256(user + password + salt).hexdigest()
-    return True
+    return passw +','+ salt
+
+def checkPass(user,password,userpassw):
+
+    passw = creatHashPass(user,password,userpassw.split(',')[1])
+    print password
+    if userpassw == passw:
+        return True
+    else:
+        return False
 
 class User(db.Model):
     user = db.StringProperty(required = True)
@@ -117,11 +124,22 @@ class User(db.Model):
         return User(user=user,password=password,email=email)
 
     @classmethod
+    def getby_id(cls, uid):
+        return User.get_by_id(uid)
+
+    @classmethod
+    def getby_name(cls, name):
+        u = User.all().filter('user =', name).get()
+        return u
+
+    @classmethod
     def login(cls,username,password):
-        user = cls.db.Key.from_path(username)
-        salt = creatHashPass(user,password).split(',')[1]
-        if user and checkPass(user,user + password + salt):
-            return user
+        userdb = cls.getby_name(username)
+
+        if userdb and checkPass(username,password,userdb.password):
+            return userdb
+        else:
+            return False
 
 def blog_key(name = 'default'):
     return db.Key.from_path('blogs', name)
@@ -140,11 +158,34 @@ class PostPage(BaseHandler):
             self.render("permalink.html", post = post)
         else:
             self.render_json(post.as_dict())
+#for cookie
+secret = 'secret'
 
+def make_secure_val(s):
+    return '%s|%s' % (val, hmac.new(secret, val).hexdigest())
+#for cookie
+def check_secure_val(h):
+    r = h.split("|")[0]
+    if make_secure_val(r) == h:
+        return r
+    else:
+        return None
 
 class LoginPage(BaseHandler):
+
     def get(self):
         self.render('login-form.html')
+
+    def post(self):
+        username = self.request.get('username')
+        password = self.request.get('password')
+
+        if User.login(username,password):
+            self.response.set_cookie('username', 'value', max_age=360, path='/',
+                    domain='localhost', secure=True)
+            self.redirect('/blog')
+        else:
+            self.redirect('/blog/login')
 
 class SignupPage(BaseHandler):
     def get(self):
