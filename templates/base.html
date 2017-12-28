@@ -7,7 +7,7 @@
 </head>
 
 <body>
-  {% if user.user %}<p style="text-align:right">Welcome <b>{{ user.user }}</b> | <a href="/blog/logout"> Logout?</a></p>{% else %}<p style="text-align:right"><a href="/blog/login">Login</a>|<a href="/blog/signup">Register</a>  </p>{% endif %}
+  {% if user.user %}<p style="text-align:right">Welcome <b>{{ user.user }}</b> | <a href="/blog/logout"> Logout?</a><br><a href="/blog/addpost">Add new post</a></p>{% else %}<p style="text-align:right"><a href="/blog/login">Login</a>|<a href="/blog/signup">Register</a>  </p>{% endif %}
 <a href="/blog"><h1>Blog</h1></a>
 
 {% block content %}{% endblock %}

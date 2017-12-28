@@ -9,6 +9,7 @@ import hmac
 import logging
 import datetime
 import uuid
+import re
 
 #template jinja config
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
@@ -90,6 +91,10 @@ class BaseHandler(webapp2.RequestHandler):
             else:
                 self.format = 'html'
 
+            if self.request.url.endswith('/logout'):
+                self.logout()
+                return self.redirect('/blog')
+
         except:
             pass
 
@@ -100,10 +105,6 @@ class MainPage(BaseHandler):
 
     def get(self):
         global CACHE
-
-        if self.request.url.endswith('/logout'):
-            self.logout()
-            return self.redirect('/blog')
 
         if self.format == 'html':
 
@@ -131,7 +132,6 @@ class Post(db.Model):
     # to render posts
     def render(self):
         self._render_text = self.content.replace('\n', '<br>')
-        base = BaseHandler()
         return render_str("post.html", p = self)
 
     #add to model function to serialize to json
@@ -235,6 +235,30 @@ class LoginPage(BaseHandler):
         else:
             self.redirect('/blog/login')
 
+class valid:
+
+    @staticmethod
+    def valid_user(user):
+        if re.match('[a-zA-Z0-9_]+',user):
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def valid_password(passw):
+        if re.match('[a-zA-Z0-9_]+',passw):
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def valid_email(email):
+        if re.match('[a-zA-Z0-9_]+@[a-zA-Z0-9_]+.[A-[a-zA-Z0-9_]+',email):
+            return True
+        else:
+            return False
+
+
 class SignupPage(BaseHandler):
     def get(self):
         self.render('signup-form.html')
@@ -242,13 +266,24 @@ class SignupPage(BaseHandler):
         username = self.request.get('username')
         password = self.request.get('password')
         email = self.request.get('email')
+        message = {}
 
-        if username and password:
+        if not valid.valid_user(username):
+            message['error_username'] = 'username not valid'
+        elif not valid.valid_password(password):
+            message['error_password'] = 'password not valid'
+        elif email and not valid.valid_email(email):
+            message['error_email'] = 'email not valid'
+            return self.render('signup-form.html',**message)
+        else:
+            message = {}
+
+        if valid.valid_user(username) and valid.valid_password(password):
             u = User.signup(username,password,email)
             u.put()
             self.redirect('/blog')
         else:
-            self.redirect('/blog/signup')
+            self.render('signup-form.html',**message)
 
 class NewPostPage(BaseHandler):
 
