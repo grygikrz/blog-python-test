@@ -5,6 +5,7 @@ import webapp2
 from google.appengine.ext import db
 import json
 import hashlib
+import hmac
 import logging
 import datetime
 import uuid
@@ -19,6 +20,9 @@ def render_str(template, **params):
     return t.render(params)
 
 CACHE = {}
+#for cookie
+secret = 'secret'
+
 
 def getPosts():
     global CACHE
@@ -28,37 +32,78 @@ def getPosts():
     CACHE = {'posts':posts,'time':time}
     return CACHE
 
+def make_secure_val(val):
+    return '%s|%s' % (val, hmac.new(secret, val).hexdigest())
 
+def check_secure_val(secure_val):
+    val = secure_val.split('|')[0]
+    if secure_val == make_secure_val(val):
+        return val
 #main class with request handler
 class BaseHandler(webapp2.RequestHandler):
 
     def write(self, *a, **kw):
         self.response.out.write(*a, **kw)
 
+        #this function is for passing some variable to jinja parent(base) template
+    def render_str(self, template, **params):
+        params['user'] = self.user
+        t = jinja_env.get_template(template)
+        return t.render(params)
+
     def render(self, template, **kw):
-        self.write(render_str(template, **kw))
+        self.write(self.render_str(template, **kw))
 
     def render_json(self, d):
         json_txt = json.dumps(d)
         self.response.headers['Content-Type'] = 'application/json; charset=UTF-8'
         self.write(json_txt)
 
-        # check is request is html or json and set format
+    def set_secure_cookie(self, name, val):
+        cookie_val = make_secure_val(val)
+        self.response.headers.add_header(
+            'Set-Cookie',
+            '%s=%s; Path=/' % (name, cookie_val))
+
+    def read_secure_cookie(self, name):
+        cookie_val = self.request.cookies.get(name)
+        return cookie_val and check_secure_val(cookie_val)
+
+    def login(self, user):
+
+        self.set_secure_cookie('user_id', str(user))
+
+    def logout(self):
+        self.response.headers.add_header('Set-Cookie', 'user_id=; Path=/')
+
     def initialize(self, *a, **kw):
-        webapp2.RequestHandler.initialize(self, *a, **kw)
+
         try:
+            # this init work when browser is shutdown , still login after return
+            webapp2.RequestHandler.initialize(self, *a, **kw)
+            uid = self.read_secure_cookie('user_id')
+            self.user = uid and User.by_id(int(uid))
+
+            # check is request is html or json and set format
             if self.request.url.endswith('.json'):
                 self.format = 'json'
             else:
                 self.format = 'html'
+
         except:
             pass
+
+
 
 
 class MainPage(BaseHandler):
 
     def get(self):
         global CACHE
+
+        if self.request.url.endswith('/logout'):
+            self.logout()
+            return self.redirect('/blog')
 
         if self.format == 'html':
 
@@ -108,7 +153,7 @@ def creatHashPass(user,password,salt=False):
 def checkPass(user,password,userpassw):
 
     passw = creatHashPass(user,password,userpassw.split(',')[1])
-    print password
+
     if userpassw == passw:
         return True
     else:
@@ -124,20 +169,24 @@ class User(db.Model):
         return User(user=user,password=password,email=email)
 
     @classmethod
-    def getby_id(cls, uid):
+    def by_id(cls, uid):
         return User.get_by_id(uid)
 
     @classmethod
-    def getby_name(cls, name):
-        u = User.all().filter('user =', name).get()
+    def by_name(cls, user):
+        u = User.all().filter('user =', user).get()
         return u
 
     @classmethod
-    def login(cls,username,password):
-        userdb = cls.getby_name(username)
-
-        if userdb and checkPass(username,password,userdb.password):
-            return userdb
+    def login(cls,user,passw):
+        userdb = cls.by_name(user)
+        if userdb:
+            chkpass = checkPass(user,passw,userdb.password)
+        else:
+            return False
+        if userdb and chkpass:
+            print 'sdsd'
+            return userdb.key().id()
         else:
             return False
 
@@ -158,10 +207,9 @@ class PostPage(BaseHandler):
             self.render("permalink.html", post = post)
         else:
             self.render_json(post.as_dict())
-#for cookie
-secret = 'secret'
 
-def make_secure_val(s):
+
+def make_secure_val(val):
     return '%s|%s' % (val, hmac.new(secret, val).hexdigest())
 #for cookie
 def check_secure_val(h):
@@ -179,10 +227,10 @@ class LoginPage(BaseHandler):
     def post(self):
         username = self.request.get('username')
         password = self.request.get('password')
-
-        if User.login(username,password):
-            self.response.set_cookie('username', 'value', max_age=360, path='/',
-                    domain='localhost', secure=True)
+        userid = User.login(username,password)
+        if userid:
+            print userid
+            self.login(userid)
             self.redirect('/blog')
         else:
             self.redirect('/blog/login')
@@ -221,6 +269,7 @@ app = webapp2.WSGIApplication([('/', MainPage),
                                ('/blog/addpost', NewPostPage),
                                ('/blog/flush', MainPage),
                                ('/blog/login', LoginPage),
+                               ('/blog/logout', MainPage),
                                ('/blog/signup', SignupPage)
                                ],
                               debug=True)
